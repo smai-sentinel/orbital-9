@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ORBITAL-9 // Deep-Space Sci-Fi Survival Horror</title>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    :root {
+      --bg-void: #010204;
+      --visor-cyan: #38bdf8;
+      --visor-cyan-dim: rgba(56, 189, 248, 0.24);
+      --visor-cyan-glow: rgba(56, 189, 248, 0.55);
+      --visor-amber: #f59e0b;
+      --visor-amber-dim: rgba(245, 158, 11, 0.25);
+      --visor-red: #ef4444;
+      --visor-red-bright: #ff1e1e;
+      --visor-red-glow: rgba(239, 68, 68, 0.65);
+      --visor-green: #10b981;
+      --visor-ice: #e0f2fe;
+      --panel-bg: rgba(4, 12, 22, 0.68);
+      --panel-border: rgba(56, 189, 248, 0.32);
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: var(--bg-void);
+      color: var(--visor-ice);
+      font-family: var(--font-mono);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      background: #010204;
+    }
+
+    #canvas-container canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Red Alert / Breach Pulsing Helmet Vignette */
+    #hud-alert-vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.08s linear;
+      background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 52%, rgba(220, 20, 20, 0.28) 84%, rgba(255, 15, 15, 0.58) 100%);
+      box-shadow: inset 0 0 90px rgba(239, 68, 68, 0.45);
+    }
+
+    #hud-alert-vignette.active,
+    #hud-alert-vignette.alert,
+    #hud-alert-vignette.critical {
+      opacity: 1;
+      animation: alertPulseVignette 1.35s infinite ease-in-out;
+    }
+
+    @keyframes alertPulseVignette {
+      0%, 100% {
+        opacity: 0.35;
+        box-shadow: inset 0 0 65px rgba(239, 68, 68, 0.35);
+      }
+      50% {
+        opacity: 0.95;
+        box-shadow: inset 0 0 130px rgba(255, 25, 25, 0.75);
+      }
+    }
+
+    /* Diegetic Curved Helmet Visor HUD Overlay */
+    #hud-root {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      padding: 24px 34px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* Curved Polycarbonate Helmet Visor Bezel Frame */
+    #hud-root::before {
+      content: '';
+      position: fixed;
+      inset: 12px 16px;
+      border-radius: 42px / 36px;
+      border: 1.5px solid rgba(56, 189, 248, 0.16);
+      box-shadow:
+        inset 0 0 45px rgba(56, 189, 248, 0.06),
+        inset 0 1px 0 rgba(224, 242, 254, 0.14);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    /* Visor Corner Calibration Ticks */
+    .visor-corner {
+      position: fixed;
+      width: 28px;
+      height: 28px;
+      border-color: rgba(56, 189, 248, 0.42);
+      border-style: solid;
+      pointer-events: none;
+    }
+    .visor-corner.tl { top: 20px; left: 24px; border-width: 2px 0 0 2px; border-top-left-radius: 14px; }
+    .visor-corner.tr { top: 20px; right: 24px; border-width: 2px 2px 0 0; border-top-right-radius: 14px; }
+    .visor-corner.bl { bottom: 20px; left: 24px; border-width: 0 0 2px 2px; border-bottom-left-radius: 14px; }
+    .visor-corner.br { bottom: 20px; right: 24px; border-width: 0 2px 2px 0; border-bottom-right-radius: 14px; }
+
+    /* Top Telemetry Header Strip */
+    .hud-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      width: 100%;
+    }
+
+    .hud-left-column {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 265px;
+      transform: perspective(700px) rotateY(4deg);
+      transform-origin: left center;
+    }
+
+    .hud-sys-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      color: var(--visor-cyan);
+      text-transform: uppercase;
+      padding: 5px 10px;
+      background: rgba(6, 18, 32, 0.72);
+      border: 1px solid var(--panel-border);
+      border-left: 3px solid var(--visor-cyan);
+      border-radius: 4px;
+      text-shadow: 0 0 8px var(--visor-cyan-glow);
+      backdrop-filter: blur(6px);
+    }
+
+    .hud-sys-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--visor-cyan);
+      box-shadow: 0 0 8px var(--visor-cyan);
+      animation: pulseDot 2s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+
+    /* Vitals Panel (Top-Left) */
+    .hud-vitals-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), inset 0 0 18px rgba(56, 189, 248, 0.05);
+      backdrop-filter: blur(8px);
+    }
+
+    .vital-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .vital-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      font-weight: 600;
+    }
+
+    .vital-label {
+      color: rgba(224, 242, 254, 0.78);
+    }
+
+    .vital-value {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--visor-ice);
+      text-shadow: 0 0 8px rgba(56, 189, 248, 0.45);
+    }
+
+    .vital-track {
+      width: 100%;
+      height: 7px;
+      background: rgba(12, 25, 42, 0.88);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .vital-fill {
+      height: 100%;
+      width: 100%;
+      background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.0) 55%, rgba(0, 0, 0, 0.18) 100%);
+      transition: width 0.15s linear, background-color 0.25s ease;
+    }
+
+    #hud-o2-bar {
+      background-color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.65);
+    }
+
+    #hud-hunger-bar {
+      background-color: #f59e0b;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.55);
+    }
+
+    #hud-health-bar {
+      background-color: #34d399;
+      box-shadow: 0 0 10px rgba(52, 211, 153, 0.55);
+    }
+
+    .vital-fill.warn,
+    .vital-fill.warning {
+      background-color: #f59e0b;
+      box-shadow: 0 0 10px rgba(251, 191, 36, 0.75);
+    }
+
+    .vital-fill.danger,
+    .vital-fill.critical,
+    .vital-fill.alert {
+      background-color: #ef4444;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.85);
+    }
+
+    /* Center Objective & Suit Mode Stack */
+    .hud-center-column {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      max-width: 640px;
+      flex: 1;
+    }
+
+    #hud-mode {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--visor-cyan);
+      background: rgba(6, 18, 32, 0.78);
+      border: 1px solid var(--panel-border);
+      padding: 4px 16px;
+      border-radius: 3px;
+      text-shadow: 0 0 10px var(--visor-cyan-glow);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    }
+
+    #hud-mode.eva {
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.65);
+    }
+
+    #hud-mode.alert,
+    #hud-mode.critical {
+      color: #fecaca;
+      background: rgba(69, 10, 10, 0.82);
+      border-color: var(--visor-red);
+      text-shadow: 0 0 10px var(--visor-red-glow);
+    }
+
+    #hud-objective-box {
+      width: 100%;
+      background: rgba(5, 16, 28, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.36);
+      border-top: 2px solid var(--visor-cyan);
+      border-radius: 5px;
+      padding: 9px 18px;
+      text-align: center;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), inset 0 0 16px rgba(56, 189, 248, 0.06);
+      backdrop-filter: blur(8px);
+      transition: all 0.25s ease;
+    }
+
+    .objective-tag {
+      font-size: 9px;
+      letter-spacing: 0.24em;
+      color: rgba(56, 189, 248, 0.78);
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+
+    #hud-objective-text {
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--visor-ice);
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+      line-height: 1.35;
+    }
+
+    #hud-objective-box.alert,
+    #hud-objective-box.critical,
+    #hud-objective-box.danger,
+    #hud-objective-text.alert,
+    #hud-objective-text.critical {
+      border-color: var(--visor-red-bright);
+      background: rgba(55, 8, 12, 0.86);
+      color: #fee2e2;
+      text-shadow: 0 0 14px rgba(255, 30, 30, 0.85);
+      animation: breachBannerFlash 0.9s infinite alternate ease-in-out;
+    }
+
+    @keyframes breachBannerFlash {
+      0% {
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.35), inset 0 0 12px rgba(239, 68, 68, 0.2);
+        transform: scale(1);
+      }
+      100% {
+        box-shadow: 0 0 32px rgba(255, 30, 30, 0.85), inset 0 0 24px rgba(255, 30, 30, 0.42);
+        transform: scale(1.012);
+      }
+    }
+
+    /* 2D Tactical Radar (Top-Right) */
+    .hud-right-column {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      min-width: 190px;
+      transform: perspective(700px) rotateY(-4deg);
+      transform-origin: right center;
+    }
+
+    .radar-frame {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), inset 0 0 18px rgba(56, 189, 248, 0.06);
+      backdrop-filter: blur(8px);
+    }
+
+    .radar-header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9.5px;
+      letter-spacing: 0.16em;
+      color: var(--visor-cyan);
+    }
+
+    .radar-bezel {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(56, 189, 248, 0.45);
+      background: radial-gradient(circle at 50% 50%, rgba(7, 25, 42, 0.85) 0%, rgba(2, 8, 16, 0.95) 100%);
+      box-shadow: inset 0 0 22px rgba(56, 189, 248, 0.2);
+      overflow: hidden;
+    }
+
+    #hud-radar-canvas {
+      display: block;
+      width: 160px;
+      height: 160px;
+    }
+
+    .radar-legend {
+      display: flex;
+      gap: 10px;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: rgba(224, 242, 254, 0.72);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .legend-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .legend-dot.pod { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
+    .legend-dot.aln { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+    .legend-dot.loc { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+
+    /* Center Reticle & Contextual Hold-E Ring */
+    .hud-center-reticle-zone {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      z-index: 12;
+    }
+
+    .reticle-crosshair {
+      width: 22px;
+      height: 22px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .reticle-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(224, 242, 254, 0.92);
+      box-shadow: 0 0 8px var(--visor-cyan);
+    }
+
+    .reticle-ring {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgba(56, 189, 248, 0.38);
+      border-radius: 50%;
+    }
+
+    #hud-prompt-container {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+
+    .hold-ring-wrapper {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hold-ring-svg {
+      width: 64px;
+      height: 64px;
+      transform: rotate(-90deg);
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.55));
+    }
+
+    .hold-ring-track {
+      fill: rgba(4, 14, 24, 0.55);
+      stroke: rgba(56, 189, 248, 0.22);
+      stroke-width: 4;
+    }
+
+    #hud-hold-ring-circle {
+      fill: none;
+      stroke: var(--visor-cyan);
+      stroke-width: 4.5;
+      stroke-linecap: round;
+      stroke-dasharray: 163.36;
+      stroke-dashoffset: 163.36;
+      transition: stroke-dashoffset 0.05s linear;
+    }
+
+    .hold-key-badge {
+      position: absolute;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--visor-ice);
+      background: rgba(8, 25, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-shadow: 0 0 8px var(--visor-cyan);
+    }
+
+    #hud-prompt-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--visor-ice);
+      background: rgba(4, 14, 26, 0.86);
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      padding: 6px 14px;
+      border-radius: 4px;
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65);
+      white-space: nowrap;
+    }
+
+    /* Toast Notification Banner */
+    #hud-toast {
+      position: fixed;
+      bottom: 78px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(6, 20, 34, 0.9);
+      border: 1px solid var(--visor-cyan);
+      border-left: 4px solid var(--visor-cyan);
+      color: var(--visor-ice);
+      padding: 9px 22px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65), 0 0 18px rgba(56, 189, 248, 0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 15;
+      text-align: center;
+    }
+
+    #hud-toast.visible,
+    #hud-toast.show,
+    #hud-toast.active {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-4px);
+    }
+
+    #hud-toast.alert,
+    #hud-toast.critical,
+    #hud-toast.danger {
+      border-color: var(--visor-red);
+      border-left-color: var(--visor-red-bright);
+      background: rgba(58, 10, 14, 0.92);
+      color: #fee2e2;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7), 0 0 22px rgba(239, 68, 68, 0.45);
+    }
+
+    /* Bottom Telemetry Status Strip */
+    .hud-bottom-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: rgba(4, 12, 22, 0.74);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      padding: 9px 18px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    }
+
+    .status-pill {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: rgba(224, 242, 254, 0.88);
+      padding: 3px 10px;
+      border-radius: 3px;
+      background: rgba(12, 28, 46, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      text-transform: uppercase;
+    }
+
+    .status-pill.active,
+    .status-pill.on {
+      color: var(--visor-cyan);
+      border-color: rgba(56, 189, 248, 0.48);
+      text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    }
+
+    .status-pill.warning {
+      color: var(--visor-amber);
+      border-color: rgba(245, 158, 11, 0.5);
+    }
+
+    .status-pill.danger,
+    .status-pill.alert,
+    .status-pill.critical {
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.6);
+      background: rgba(69, 10, 10, 0.65);
+    }
+
+    /* Fullscreen Overlays (Start & Game Over) */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 45%, rgba(6, 18, 32, 0.82) 0%, rgba(1, 3, 7, 0.96) 100%);
+      backdrop-filter: blur(12px);
+      padding: 24px;
+    }
+
+    #start-overlay {
+      z-index: 30;
+    }
+
+    #gameover-overlay {
+      z-index: 40;
+      background: radial-gradient(circle at 50% 45%, rgba(45, 6, 10, 0.88) 0%, rgba(2, 2, 4, 0.98) 100%);
+    }
+
+    .overlay-card {
+      position: relative;
+      max-width: 780px;
+      width: 100%;
+      background: rgba(5, 14, 24, 0.88);
+      border: 1px solid rgba(56, 189, 248, 0.42);
+      border-top: 3px solid var(--visor-cyan);
+      border-radius: 10px;
+      padding: 32px 36px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), inset 0 0 36px rgba(56, 189, 248, 0.07);
+      overflow: hidden;
+    }
+
+    #gameover-overlay .overlay-card {
+      border-color: rgba(239, 68, 68, 0.55);
+      border-top-color: var(--visor-red-bright);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.9), inset 0 0 40px rgba(239, 68, 68, 0.14);
+    }
+
+    .overlay-scanline {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px,
+        transparent 3px,
+        rgba(56, 189, 248, 0.025) 4px
+      );
+      pointer-events: none;
+    }
+
+    .mission-tag {
+      font-size: 11px;
+      letter-spacing: 0.26em;
+      color: var(--visor-cyan);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .title-main {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      color: #ffffff;
+      text-shadow: 0 0 24px rgba(56, 189, 248, 0.65);
+      margin-bottom: 12px;
+    }
+
+    .gameover-title {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      color: #fecaca;
+      text-shadow: 0 0 22px rgba(239, 68, 68, 0.85);
+      margin-bottom: 14px;
+    }
+
+    .mission-brief {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.6;
+      color: rgba(224, 242, 254, 0.84);
+      margin-bottom: 22px;
+      border-left: 2px solid rgba(56, 189, 248, 0.45);
+      padding-left: 14px;
+    }
+
+    .controls-section-title {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      color: var(--visor-cyan);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px 16px;
+      margin-bottom: 20px;
+    }
+
+    .control-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(10, 24, 40, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.18);
+      padding: 7px 12px;
+      border-radius: 4px;
+      font-size: 11.5px;
+    }
+
+    .control-key {
+      color: var(--visor-cyan);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      padding: 2px 7px;
+      border-radius: 3px;
+    }
+
+    .control-desc {
+      color: rgba(224, 242, 254, 0.88);
+    }
+
+    .preset-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 24px;
+      padding: 9px 12px;
+      background: rgba(8, 20, 34, 0.7);
+      border: 1px dashed rgba(56, 189, 248, 0.3);
+      border-radius: 5px;
+      font-size: 10.5px;
+      color: rgba(224, 242, 254, 0.75);
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .cta-btn {
+      width: 100%;
+      padding: 15px 24px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #020810;
+      background: linear-gradient(90deg, #38bdf8, #7dd3fc, #38bdf8);
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      box-shadow: 0 0 28px rgba(56, 189, 248, 0.65);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 40px rgba(56, 189, 248, 0.95);
+      filter: brightness(1.08);
+    }
+
+    .cta-btn:active {
+      transform: translateY(0);
+    }
+
+    #restart-btn {
+      background: linear-gradient(90deg, #ef4444, #f87171, #ef4444);
+      color: #ffffff;
+      box-shadow: 0 0 28px rgba(239, 68, 68, 0.65);
+      margin-top: 20px;
+    }
+
+    #restart-btn:hover {
+      box-shadow: 0 0 42px rgba(239, 68, 68, 0.95);
+    }
+
+    #gameover-reason {
+      font-size: 14px;
+      line-height: 1.6;
+      color: rgba(254, 226, 226, 0.9);
+      background: rgba(69, 10, 14, 0.55);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      padding: 14px 18px;
+      border-radius: 5px;
+      letter-spacing: 0.06em;
+    }
+
+    /* Utility Visibility Classes (No !important so inline/JS toggles work cleanly) */
+    .hidden {
+      display: none;
+    }
+
+    #hud-prompt-container.visible,
+    #hud-prompt-container.active,
+    #hud-prompt-container.show {
+      display: flex;
+      opacity: 1;
+    }
+
+    #gameover-overlay.visible,
+    #gameover-overlay.active,
+    #gameover-overlay.show {
+      display: flex;
+    }
+
+    @media (max-width: 760px) {
+      .controls-grid {
+        grid-template-columns: 1fr;
+      }
+      .hud-top-bar {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- WebGL Canvas Target -->
+  <div id="canvas-container"></div>
+
+  <!-- Breach Red-Alert Pulsing Vignette -->
+  <div id="hud-alert-vignette"></div>
+
+  <!-- Diegetic Curved Helmet Visor HUD -->
+  <div id="hud-root">
+    <div class="visor-corner tl"></div>
+    <div class="visor-corner tr"></div>
+    <div class="visor-corner bl"></div>
+    <div class="visor-corner br"></div>
+
+    <!-- Top Row: Vitals (Left), Mode & Objective (Center), 2D Tactical Radar (Right) -->
+    <div class="hud-top-bar">
+      <!-- Left: Suit Telemetry & Vitals -->
+      <div class="hud-left-column">
+        <div class="hud-sys-header">
+          <span>SYS: ORBITAL-9 // SUIT TELEMETRY</span>
+          <span class="hud-sys-dot"></span>
+        </div>
+        <div class="hud-vitals-card">
+          <div class="vital-row">
+            <div class="vital-header">
+              <span class="vital-label">O2 RESERVE</span>
+              <span id="hud-o2-val" class="vital-value">100%</span>
+            </div>
+            <div class="vital-track">
+              <div id="hud-o2-bar" class="vital-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <div class="vital-row">
+            <div class="vital-header">
+              <span class="vital-label">CALORIC RATION</span>
+              <span id="hud-hunger-val" class="vital-value">100%</span>
+            </div>
+            <div class="vital-track">
+              <div id="hud-hunger-bar" class="vital-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+
+          <div class="vital-row">
+            <div class="vital-header">
+              <span class="vital-label">SUIT INTEGRITY</span>
+              <span id="hud-health-val" class="vital-value">100%</span>
+            </div>
+            <div class="vital-track">
+              <div id="hud-health-bar" class="vital-fill" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center: Suit Kinematics Mode & Primary Objective Banner -->
+      <div class="hud-center-column">
+        <div id="hud-mode">INTERIOR // MAG-BOOTS</div>
+        <div id="hud-objective-box">
+          <div class="objective-tag">DIRECTIVE // TELEMETRY LINK</div>
+          <div id="hud-objective-text">CYCLE AIRLOCK (+Z) TO SCAVENGE EVA SUPPLY PODS</div>
+        </div>
+      </div>
+
+      <!-- Right: 2D Tactical Phosphor Radar -->
+      <div class="hud-right-column">
+        <div class="radar-frame">
+          <div class="radar-header">
+            <span>2D TACTICAL RADAR</span>
+            <span>50M</span>
+          </div>
+          <div class="radar-bezel">
+            <canvas id="hud-radar-canvas" width="160" height="160"></canvas>
+          </div>
+          <div class="radar-legend">
+            <span class="legend-item"><i class="legend-dot pod"></i>POD</span>
+            <span class="legend-item"><i class="legend-dot aln"></i>STALKER</span>
+            <span class="legend-item"><i class="legend-dot loc"></i>NAV</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Crosshair & Radial Hold-E Interaction Ring -->
+    <div class="hud-center-reticle-zone">
+      <div class="reticle-crosshair">
+        <div class="reticle-ring"></div>
+        <div class="reticle-dot"></div>
+      </div>
+      <div id="hud-prompt-container" class="hidden">
+        <div class="hold-ring-wrapper">
+          <svg class="hold-ring-svg" width="64" height="64" viewBox="0 0 64 64">
+            <circle class="hold-ring-track" cx="32" cy="32" r="26"></circle>
+            <circle id="hud-hold-ring-circle" cx="32" cy="32" r="26" stroke-dasharray="163.36" stroke-dashoffset="163.36"></circle>
+          </svg>
+          <span class="hold-key-badge">E</span>
+        </div>
+        <div id="hud-prompt-label">[HOLD E] INTERACT</div>
+      </div>
+    </div>
+
+    <!-- Floating Toast Alert -->
+    <div id="hud-toast" class="hidden">TELEMETRY ONLINE</div>
+
+    <!-- Bottom Telemetry Status Bar -->
+    <div class="hud-bottom-bar">
+      <div id="hud-status-flashlight" class="status-pill active">FLASHLIGHT [F]: ON</div>
+      <div id="hud-status-stabilizer" class="status-pill active">RCS STABILIZER [R]: ON</div>
+      <div id="hud-status-acoustic" class="status-pill">ACOUSTIC SIG: LOW 1.5m</div>
+      <div id="hud-status-cargo" class="status-pill">CARGO: 0 O2 | 0 RATIONS | 0 RELAYS</div>
+      <div id="hud-crew" class="status-pill">SOLO</div>
+      <div id="hud-fps" class="status-pill active">60 FPS [G: BAL]</div>
+    </div>
+  </div>
+
+  <!-- Start / Mission Briefing Overlay -->
+  <div id="start-overlay" class="overlay">
+    <div class="overlay-card" style="max-height: 92vh; overflow-y: auto;">
+      <div class="overlay-scanline"></div>
+      <div class="mission-tag">DEEP-SPACE OUTPOST 9 // LOW ORBIT ABOVE ACHERON-IV</div>
+      <h1 class="title-main">ORBITAL-9</h1>
+      <p class="mission-brief">
+        Survive aboard <strong>Orbital Research Outpost 9</strong> solo or in <strong>Free Online Co-op (up to 6 crew)</strong>. Cycle the airlock to scavenge drifting EVA supply pods in zero-G, evade photosensitive/acoustic <strong>Void Stalkers</strong>, and race back to the Command Bridge to engage <strong>Emergency Lockdown &amp; Thermal Vent Purge</strong> when a hull breach sounds.
+      </p>
+
+      <!-- Free Online Co-op Panel (PeerJS WebRTC) -->
+      <div style="margin: 12px 0 14px; padding: 12px 14px; background: rgba(6, 22, 36, 0.85); border: 1px solid rgba(52, 211, 153, 0.45); border-radius: 6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:11px; font-weight:700; letter-spacing:0.16em; color:#34d399;">ONLINE CO-OP MULTIPLAYER (FREE P2P — UP TO 6 PLAYERS)</span>
+          <span id="coop-status" style="font-size:11px; color:#94a3b8; letter-spacing:0.08em;">SOLO MODE</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <input id="coop-name" type="text" maxlength="12" placeholder="CALLSIGN" style="width:115px; padding:7px 9px; background:#030b14; border:1px solid rgba(56,189,248,0.4); border-radius:4px; color:#e0f2fe; font-family:inherit; font-size:12px; text-transform:uppercase;" />
+          <button id="coop-host-btn" type="button" style="padding:7px 12px; background:rgba(16,185,129,0.22); border:1px solid #10b981; border-radius:4px; color:#6ee7b7; font-family:inherit; font-size:11px; font-weight:700; letter-spacing:0.1em; cursor:pointer;">HOST ROOM</button>
+          <input id="coop-code" type="text" maxlength="6" placeholder="CODE (e.g. K7M4)" style="width:130px; padding:7px 9px; background:#030b14; border:1px solid rgba(56,189,248,0.4); border-radius:4px; color:#e0f2fe; font-family:inherit; font-size:12px; text-transform:uppercase;" />
+          <button id="coop-join-btn" type="button" style="padding:7px 12px; background:rgba(56,189,248,0.2); border:1px solid #38bdf8; border-radius:4px; color:#bae6fd; font-family:inherit; font-size:11px; font-weight:700; letter-spacing:0.1em; cursor:pointer;">JOIN ROOM</button>
+          <button id="coop-copy-btn" type="button" style="display:none; padding:7px 12px; background:rgba(245,158,11,0.2); border:1px solid #f59e0b; border-radius:4px; color:#fde68a; font-family:inherit; font-size:11px; font-weight:700; letter-spacing:0.1em; cursor:pointer;">COPY INVITE LINK</button>
+        </div>
+      </div>
+
+      <div class="controls-section-title">SUIT &amp; EVA FLIGHT CONTROLS</div>
+      <div class="controls-grid">
+        <div class="control-item">
+          <span class="control-desc">Move (Mag-Boots) / RCS Thrust</span>
+          <span class="control-key">W A S D</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Helmet Orientation / Aim</span>
+          <span class="control-key">MOUSE</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Interact / Hold Lockdown (2.5s)</span>
+          <span class="control-key">E</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Helmet Photonic Flashlight</span>
+          <span class="control-key">F</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Zero-G Vertical Thrust (Up / Down)</span>
+          <span class="control-key">SPACE / CTRL or C</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Zero-G 6-DOF Axial Roll</span>
+          <span class="control-key">Q / E</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Toggle RCS Inertial Stabilizers</span>
+          <span class="control-key">R</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Mag-Boot Sprint / RCS Afterburner</span>
+          <span class="control-key">SHIFT</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Quick-Use Spare O2 Cell / Ration</span>
+          <span class="control-key">H / V</span>
+        </div>
+        <div class="control-item">
+          <span class="control-desc">Synthesize Reserves (Mess Locker)</span>
+          <span class="control-key">HOLD E (0.8s)</span>
+        </div>
+      </div>
+
+      <div class="preset-strip">
+        <span><strong>DIAGNOSTIC TELEPORT HOTKEYS:</strong></span>
+        <span><strong>[1]</strong> Command Bridge</span>
+        <span><strong>[2]</strong> Zero-G EVA Exterior</span>
+        <span><strong>[3]</strong> Red-Alert Breach</span>
+        <span><strong>[4]</strong> Execute Lockdown</span>
+      </div>
+
+      <button id="start-btn" class="cta-btn">INITIALIZE SUIT &amp; ENTER STATION</button>
+    </div>
+  </div>
+
+  <!-- Game Over Overlay -->
+  <div id="gameover-overlay" class="overlay hidden">
+    <div class="overlay-card">
+      <div class="overlay-scanline"></div>
+      <div class="mission-tag" style="color: #f87171;">CRITICAL BIOMETRIC FAILURE // OUTPOST 9</div>
+      <h2 class="gameover-title">SIGNAL LOST // SUIT TELEMETRY TERMINATED</h2>
+      <div id="gameover-reason">Hypoxia and suit breach detected. Operator vitals flatlined.</div>
+      <button id="restart-btn" class="cta-btn">REINITIALIZE MISSION</button>
+    </div>
+  </div>
+
+  <!-- Master Orchestrator ES Module -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+    import { StationManager } from './station.js';
+    import { EVASpaceManager } from './eva_space.js';
+    import { PlayerController } from './player.js';
+    import { AlienDirector } from './aliens.js';
+    import { AudioUIManager } from './audio_ui.js';
+    import { MultiplayerManager } from './multiplayer.js';
+
+    // -------------------------------------------------------------------------
+    // 1. WebGLRenderer, Camera & Scene Setup (High-FPS Optimized)
+    // -------------------------------------------------------------------------
+    const container = document.getElementById('canvas-container');
+
+    const QUALITY_MODES = [
+      { label: 'PERF', dprCap: 0.8, bloomScale: 0.35, bloomEnabled: false },
+      { label: 'BAL',  dprCap: 1.0, bloomScale: 0.50, bloomEnabled: true },
+      { label: 'HIGH', dprCap: 1.35, bloomScale: 0.75, bloomEnabled: true }
+    ];
+    let qualityIdx = 1; // Default BALANCED: 1.0x DPR + half-res bloom (4x faster on Retina!)
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: false,
+      powerPreference: 'high-performance'
+    });
+    const initDpr = Math.min(window.devicePixelRatio || 1, QUALITY_MODES[qualityIdx].dprCap);
+    renderer.setPixelRatio(initDpr);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x010204);
+    scene.fog = new THREE.FogExp2(0x030508, 0.0012);
+
+    const camera = new THREE.PerspectiveCamera(
+      72,
+      window.innerWidth / Math.max(window.innerHeight, 1),
+      0.08,
+      4500
+    );
+
+    // -------------------------------------------------------------------------
+    // 2. Procedural PMREM Studio Environment Map for Metallic PBR Surfaces
+    // -------------------------------------------------------------------------
+    function buildProceduralPMREMEnvironment(webglRenderer, targetScene) {
+      const pmremGenerator = new THREE.PMREMGenerator(webglRenderer);
+      pmremGenerator.compileEquirectangularShader();
+
+      const envScene = new THREE.Scene();
+      envScene.background = new THREE.Color(0x020408);
+
+      const tempGeometries = [];
+      const tempMaterials = [];
+
+      const addPanel = (w, h, d, colorHex, pos, intensity = 1.0, lookAtOrigin = true) => {
+        const geom = new THREE.BoxGeometry(w, h, d);
+        const hdrColor = new THREE.Color(colorHex).multiplyScalar(intensity);
+        const mat = new THREE.MeshBasicMaterial({ color: hdrColor });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.copy(pos);
+        if (lookAtOrigin) mesh.lookAt(0, 0, 0);
+        envScene.add(mesh);
+        tempGeometries.push(geom);
+        tempMaterials.push(mat);
+      };
+
+      // High-intensity cool cyan key rim panels (0x38bdf8)
+      addPanel(14, 8, 0.5, 0x38bdf8, new THREE.Vector3(-12, 9, -10), 2.4, true);
+      addPanel(10, 6, 0.5, 0x7dd3fc, new THREE.Vector3(14, 7, 11), 1.8, true);
+
+      // Warm amber industrial bounce panels (0xf59e0b)
+      addPanel(14, 7, 0.5, 0xf59e0b, new THREE.Vector3(11, -8, -9), 1.9, true);
+      addPanel(9, 5, 0.5, 0xd97706, new THREE.Vector3(-10, -7, 12), 1.5, true);
+
+      // Subtle gunmetal overhead & floor fill strips
+      addPanel(22, 1, 22, 0x1e293b, new THREE.Vector3(0, 15, 0), 0.75, false);
+      addPanel(22, 1, 22, 0x0f172a, new THREE.Vector3(0, -15, 0), 0.45, false);
+
+      const envRT = pmremGenerator.fromScene(envScene, 0.04);
+      targetScene.environment = envRT.texture;
+
+      // Clean up temporary geometry, materials, and generator while keeping envRT.texture alive
+      for (const g of tempGeometries) g.dispose();
+      for (const m of tempMaterials) m.dispose();
+      pmremGenerator.dispose();
+    }
+
+    buildProceduralPMREMEnvironment(renderer, scene);
+
+    // -------------------------------------------------------------------------
+    // 3. Custom GLSL VisorShaderPass & EffectComposer Pipeline (PLAN.md 3.2-3.3)
+    // -------------------------------------------------------------------------
+    const VisorShader = {
+      uniforms: {
+        tDiffuse:    { value: null },
+        uTime:       { value: 0.0 },
+        uOxygen:     { value: 1.0 },
+        uPanic:      { value: 0.0 },
+        uDamage:     { value: 0.0 },
+        uVelocity:   { value: 0.0 },
+        uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDiffuse;
+        uniform float uTime;
+        uniform float uOxygen;
+        uniform float uPanic;
+        uniform float uDamage;
+        uniform float uVelocity;
+        uniform vec2 uResolution;
+        varying vec2 vUv;
+
+        // 2D Hash & Value Noise for FBM Visor Frost / Condensation
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+            mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+            u.y
+          );
+        }
+
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float a = 0.55;
+          mat2 rot = mat2(0.87758, 0.47942, -0.47942, 0.87758);
+          for (int i = 0; i < 2; ++i) {
+            v += a * noise(p);
+            p = rot * p * 2.04;
+            a *= 0.45;
+          }
+          return v;
+        }
+
+        void main() {
+          // 1. Centered Aspect-Corrected Coordinates
+          vec2 centered = vUv - 0.5;
+          float aspect = uResolution.x / max(uResolution.y, 1.0);
+          vec2 p = vec2(centered.x * aspect, centered.y);
+          float r2 = dot(p, p);
+          float r = sqrt(r2);
+
+          // 2. Subtle Barrel Glass Curvature Distortion
+          // k1 = 0.065 baseline + 0.025 under high velocity/panic
+          float k1 = 0.065 + 0.025 * (uVelocity * 0.5 + uPanic * 0.5);
+          vec2 distortedUv = 0.5 + centered * (1.0 + k1 * r2);
+
+          // Clamp out-of-bounds bezel edges
+          if (distortedUv.x < 0.0 || distortedUv.x > 1.0 || distortedUv.y < 0.0 || distortedUv.y > 1.0) {
+            gl_FragColor = vec4(0.01, 0.015, 0.02, 1.0);
+            return;
+          }
+
+          // 3. Radial Chromatic Aberration (amplified by Panic, Damage, and Low O2)
+          float caStrength = (0.0025 + 0.009 * uPanic + 0.014 * uDamage + 0.008 * (1.0 - uOxygen)) * r2;
+          vec2 caOffset = normalize(centered + 1e-5) * caStrength;
+
+          float colR = texture2D(tDiffuse, distortedUv + caOffset).r;
+          float colG = texture2D(tDiffuse, distortedUv).g;
+          float colB = texture2D(tDiffuse, distortedUv - caOffset).b;
+          vec3 color = vec3(colR, colG, colB);
+
+          // 4. Subtle Dielectric Visor Scanlines & Micro-Grid Reflection
+          float scanline = sin(distortedUv.y * uResolution.y * 0.85) * 0.018;
+          color += vec3(0.04, 0.09, 0.12) * scanline * smoothstep(0.35, 0.85, r);
+
+          // 5. Procedural Frost & Breath Condensation FBM Mask along Edges as O2 Drops (Gated for high FPS)
+          float hypoxiaFactor = clamp(1.0 - uOxygen, 0.0, 1.0);
+          if (r > 0.52 || hypoxiaFactor > 0.12) {
+            float breathCycle = 0.5 + 0.5 * sin(uTime * (2.2 + uPanic * 3.5));
+            float bottomBreath = smoothstep(0.45, 0.0, length(p - vec2(0.0, -0.42))) * 0.18 * breathCycle;
+
+            float frostNoise = fbm(p * 5.5 + vec2(0.0, uTime * 0.02));
+            float frostEdgeRadius = mix(0.88, 0.24, pow(hypoxiaFactor, 1.25));
+            float frostMask = smoothstep(frostEdgeRadius - 0.18, frostEdgeRadius + 0.15, r + frostNoise * 0.22 - bottomBreath);
+            frostMask = clamp(frostMask * (0.25 + 0.85 * hypoxiaFactor), 0.0, 0.92);
+
+            vec3 frostColor = vec3(0.72, 0.86, 0.96) * (0.65 + 0.35 * frostNoise);
+            color = mix(color, frostColor, frostMask);
+          }
+
+          // 6. Red Trauma / Damage Vignette + Hypoxia Desaturation
+          float damagePulse = uDamage * (0.75 + 0.25 * sin(uTime * 14.0));
+          float damageMask = smoothstep(0.25, 0.82, r) * damagePulse;
+          color = mix(color, vec3(0.75, 0.03, 0.02), damageMask);
+
+          // Hypoxia grey-blue blackout below 20% O2
+          float blackout = smoothstep(0.22, 0.0, uOxygen);
+          float luma = dot(color, vec3(0.299, 0.587, 0.114));
+          color = mix(color, vec3(luma * 0.4, luma * 0.45, luma * 0.55), blackout * 0.75);
+
+          // 7. Physical Helmet Rim Vignette
+          float visorVignette = smoothstep(0.92, 0.52, r);
+          color *= mix(0.18, 1.0, visorVignette);
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `
+    };
+
+    const composer = new EffectComposer(renderer);
+
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth * 0.5)), Math.max(1, Math.floor(window.innerHeight * 0.5))),
+      0.62,
+      0.42,
+      0.78
+    );
+    composer.addPass(bloomPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+    const visorPass = new ShaderPass(VisorShader);
+    composer.addPass(visorPass);
+
+    // -------------------------------------------------------------------------
+    // 4. Authoritative Shared GameState & Synchronous EventBus (PLAN.md 2.2)
+    // -------------------------------------------------------------------------
+    const gameContext = {
+      scene,
+      camera,
+      renderer,
+      composer,
+      visorPass,
+      bloomPass,
+
+      isPaused: true,
+      isGameOver: false,
+      gameOverReason: '',
+      elapsed: 0.0,
+      dt: 0.016,
+
+      textures: {},
+      managers: {},
+
+      player: {
+        mode: 'INTERIOR',
+        position: new THREE.Vector3(0, 1.68, -9.5),
+        velocity: new THREE.Vector3(),
+        quaternion: new THREE.Quaternion(),
+        health: 100.0,
+        oxygen: 100.0,
+        hunger: 100.0,
+        panic: 0.0,
+        damageFlash: 0.0,
+        flashlightOn: true,
+        flashlightLight: null,
+        stabilizersOn: true,
+        isThrusting: false,
+        acousticRadius: 1.5,
+        carriedRations: 0,
+        carriedO2Cells: 0,
+        repairedRelays: 0,
+        activePrompt: null
+      },
+
+      station: {
+        airlockState: 'PRESSURIZED_INNER',
+        airlockProgress: 0.0,
+        innerDoorOpen: true,
+        outerDoorOpen: false,
+        alarmActive: false,
+        lockdownActive: false,
+        lockdownHoldProgress: 0.0,
+        breachTimer: 85.0,
+        powerLevel: 1.0
+      },
+
+      colliders: {
+        interiorWalkableAABBs: [],
+        interiorObstacleAABBs: [],
+        exteriorHullAABBs: [],
+        airlockVolumeAABB: null
+      },
+
+      interactables: [],
+      radarTargets: [],
+
+      events: {
+        listeners: new Map(),
+        on(event, fn) {
+          if (!this.listeners.has(event)) {
+            this.listeners.set(event, new Set());
+          }
+          this.listeners.get(event).add(fn);
+          return () => this.off(event, fn);
+        },
+        off(event, fn) {
+          const set = this.listeners.get(event);
+          if (set) {
+            set.delete(fn);
+          }
+        },
+        emit(event, payload) {
+          const set = this.listeners.get(event);
+          if (set) {
+            for (const fn of [...set]) {
+              try {
+                fn(payload);
+              } catch (err) {
+                console.error(`[EventBus] Error in listener for ${event}:`, err);
+              }
+            }
+          }
+        }
+      }
+    };
+
+    // -------------------------------------------------------------------------
+    // 5. Strict Deterministic Subsystem Initialization Order
+    // -------------------------------------------------------------------------
+    const stationManager = new StationManager(gameContext);
+    gameContext.managers.station = stationManager;
+    stationManager.init();
+
+    const evaSpaceManager = new EVASpaceManager(gameContext);
+    gameContext.managers.eva = evaSpaceManager;
+    evaSpaceManager.init();
+
+    const playerController = new PlayerController(gameContext);
+    gameContext.managers.player = playerController;
+    playerController.init();
+
+    const alienDirector = new AlienDirector(gameContext);
+    gameContext.managers.aliens = alienDirector;
+    alienDirector.init();
+
+    const audioUIManager = new AudioUIManager(gameContext);
+    gameContext.managers.audio = audioUIManager;
+    audioUIManager.init();
+
+    const multiplayerManager = new MultiplayerManager(gameContext);
+    gameContext.managers.multiplayer = multiplayerManager;
+    multiplayerManager.init();
+
+    // -------------------------------------------------------------------------
+    // 5b. Co-op Multiplayer UI & Quality Controls
+    // -------------------------------------------------------------------------
+    const coopNameInput = document.getElementById('coop-name');
+    const coopCodeInput = document.getElementById('coop-code');
+    const coopHostBtn = document.getElementById('coop-host-btn');
+    const coopJoinBtn = document.getElementById('coop-join-btn');
+    const coopCopyBtn = document.getElementById('coop-copy-btn');
+    const coopStatusEl = document.getElementById('coop-status');
+    const hudCrewEl = document.getElementById('hud-crew');
+    const hudFpsEl = document.getElementById('hud-fps');
+
+    if (coopNameInput) coopNameInput.value = multiplayerManager.callsign;
+
+    // Auto-detect ?room=XXXX invite link
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlRoom = params.get('room');
+      if (urlRoom && coopCodeInput) {
+        coopCodeInput.value = urlRoom.toUpperCase();
+        if (coopStatusEl) {
+          coopStatusEl.textContent = `INVITE DETECTED: ${urlRoom.toUpperCase()} — CLICK JOIN ROOM`;
+          coopStatusEl.style.color = '#38bdf8';
+        }
+      }
+    } catch (_) {}
+
+    multiplayerManager.onStatusChange((st) => {
+      if (coopStatusEl) {
+        coopStatusEl.textContent = st.message;
+        coopStatusEl.style.color = st.isError ? '#f87171' : (st.role === 'SOLO' ? '#94a3b8' : '#34d399');
+      }
+      if (coopCopyBtn) {
+        coopCopyBtn.style.display = st.roomCode ? 'inline-block' : 'none';
+      }
+      if (hudCrewEl) {
+        if (st.role === 'SOLO') {
+          hudCrewEl.textContent = 'SOLO';
+          hudCrewEl.classList.remove('active');
+        } else {
+          hudCrewEl.textContent = `CO-OP [${st.roomCode}] ${st.crewCount}/6 [T: PING]`;
+          hudCrewEl.classList.add('active');
+        }
+      }
+    });
+
+    coopHostBtn?.addEventListener('click', () => {
+      multiplayerManager.hostRoom(coopNameInput?.value);
+    });
+
+    coopJoinBtn?.addEventListener('click', () => {
+      multiplayerManager.joinRoom(coopCodeInput?.value, coopNameInput?.value);
+    });
+
+    coopCopyBtn?.addEventListener('click', () => {
+      const invite = multiplayerManager.getInviteUrl();
+      navigator.clipboard?.writeText(invite).then(() => {
+        if (coopCopyBtn) {
+          coopCopyBtn.textContent = 'LINK COPIED!';
+          setTimeout(() => { coopCopyBtn.textContent = 'COPY INVITE LINK'; }, 1800);
+        }
+      }).catch(() => {
+        window.prompt('Copy co-op invite link:', invite);
+      });
+    });
+
+    function applyQualityPreset(idx) {
+      qualityIdx = idx % QUALITY_MODES.length;
+      const q = QUALITY_MODES[qualityIdx];
+      const w = window.innerWidth;
+      const h = Math.max(window.innerHeight, 1);
+      const dpr = Math.min(window.devicePixelRatio || 1, q.dprCap);
+      renderer.setPixelRatio(dpr);
+      renderer.setSize(w, h);
+      composer.setPixelRatio(dpr);
+      composer.setSize(w, h);
+      bloomPass.enabled = q.bloomEnabled;
+      bloomPass.setSize(Math.max(1, Math.floor(w * q.bloomScale)), Math.max(1, Math.floor(h * q.bloomScale)));
+      visorPass.uniforms.uResolution.value.set(w, h);
+      audioUIManager.showToast(`GRAPHICS QUALITY: ${q.label}`, 1.8);
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Resize Handler, PointerLock & Overlay Controls
+    // -------------------------------------------------------------------------
+    function onWindowResize() {
+      const w = window.innerWidth;
+      const h = Math.max(window.innerHeight, 1);
+      const q = QUALITY_MODES[qualityIdx];
+      const dpr = Math.min(window.devicePixelRatio || 1, q.dprCap);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(dpr);
+      renderer.setSize(w, h);
+      composer.setPixelRatio(dpr);
+      composer.setSize(w, h);
+      bloomPass.setSize(Math.max(1, Math.floor(w * q.bloomScale)), Math.max(1, Math.floor(h * q.bloomScale)));
+      visorPass.uniforms.uResolution.value.set(w, h);
+    }
+    window.addEventListener('resize', onWindowResize);
+
+    const startOverlay = document.getElementById('start-overlay');
+    const gameoverOverlay = document.getElementById('gameover-overlay');
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+
+    function safeRequestPointerLock() {
+      try {
+        if (document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
+          const lockPromise = renderer.domElement.requestPointerLock();
+          if (lockPromise && typeof lockPromise.catch === 'function') {
+            lockPromise.catch(() => {});
+          }
+        }
+      } catch (_) {
+        // Ignore pointer lock rejection in automated/headless environments
+      }
+    }
+
+    function hideOverlaysAndUnpause() {
+      startOverlay?.classList.add('hidden');
+      if (!gameContext.isGameOver) {
+        gameoverOverlay?.classList.add('hidden');
+      }
+      gameContext.isPaused = false;
+      try {
+        audioUIManager.resumeAudio();
+      } catch (_) {}
+    }
+
+    startBtn?.addEventListener('click', () => {
+      hideOverlaysAndUnpause();
+      safeRequestPointerLock();
+    });
+
+    renderer.domElement.addEventListener('click', () => {
+      if (!gameContext.isPaused && !gameContext.isGameOver) {
+        try {
+          audioUIManager.resumeAudio();
+        } catch (_) {}
+        safeRequestPointerLock();
+      }
+    });
+
+    restartBtn?.addEventListener('click', () => {
+      window.location.reload();
+    });
+
+    // -------------------------------------------------------------------------
+    // 7. Deterministic Verification & Debug Hooks (PLAN.md Section 7.3)
+    // -------------------------------------------------------------------------
+    window.__ORBITAL9_DEBUG__ = {
+      getState: () => gameContext,
+      enterBridgeView: () => {
+        gameContext.isGameOver = false;
+        hideOverlaysAndUnpause();
+        stationManager.triggerRedAlert(false);
+        playerController.teleportToPreset('BRIDGE');
+      },
+      enterEVAView: () => {
+        gameContext.isGameOver = false;
+        hideOverlaysAndUnpause();
+        stationManager.triggerRedAlert(false);
+        playerController.teleportToPreset('EVA_EXTERIOR');
+      },
+      triggerRedAlertView: () => {
+        gameContext.isGameOver = false;
+        hideOverlaysAndUnpause();
+        playerController.teleportToPreset('CORRIDOR_BREACH');
+        alienDirector.forceBreachEvent();
+      },
+      executeLockdown: () => {
+        gameContext.isGameOver = false;
+        hideOverlaysAndUnpause();
+        stationManager.triggerEmergencyLockdown();
+      },
+      cycleAirlock: () => {
+        stationManager.cycleAirlock();
+      }
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.code === 'Digit1') {
+        window.__ORBITAL9_DEBUG__.enterBridgeView();
+      } else if (e.code === 'Digit2') {
+        window.__ORBITAL9_DEBUG__.enterEVAView();
+      } else if (e.code === 'Digit3') {
+        window.__ORBITAL9_DEBUG__.triggerRedAlertView();
+      } else if (e.code === 'Digit4') {
+        window.__ORBITAL9_DEBUG__.executeLockdown();
+      } else if (e.code === 'KeyG') {
+        applyQualityPreset(qualityIdx + 1);
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // 8. Master requestAnimationFrame Simulation & Render Loop
+    // -------------------------------------------------------------------------
+    let lastFrameTime = performance.now();
+    let fpsFrames = 0;
+    let fpsAccum = 0;
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      const rawDt = (now - lastFrameTime) * 0.001;
+      lastFrameTime = now;
+      const dt = Math.min(Math.max(rawDt, 0.0001), 0.05);
+
+      fpsFrames++;
+      fpsAccum += rawDt;
+      if (fpsAccum >= 0.45) {
+        const fps = Math.round(fpsFrames / fpsAccum);
+        if (hudFpsEl) {
+          hudFpsEl.textContent = `${fps} FPS [G: ${QUALITY_MODES[qualityIdx].label}]`;
+        }
+        fpsFrames = 0;
+        fpsAccum = 0;
+      }
+
+      gameContext.dt = dt;
+      gameContext.elapsed += dt;
+
+      // Update all 6 subsystem managers in deterministic order
+      stationManager.update(dt, gameContext.elapsed, gameContext);
+      evaSpaceManager.update(dt, gameContext.elapsed, gameContext);
+      playerController.update(dt, gameContext.elapsed, gameContext);
+      alienDirector.update(dt, gameContext.elapsed, gameContext);
+      multiplayerManager.update(dt, gameContext.elapsed);
+      audioUIManager.update(dt, gameContext.elapsed, gameContext);
+
+      // Smoothly modulate UnrealBloomPass strength during Red Alert
+      const targetBloomStrength = gameContext.station.alarmActive ? 0.95 : 0.65;
+      bloomPass.strength += (targetBloomStrength - bloomPass.strength) * Math.min(1.0, dt * 6.0);
+
+      // Update Custom GLSL VisorShaderPass Uniforms
+      const maxRefSpeed = gameContext.player.mode === 'EVA' ? 14.0 : 6.6;
+      const speedNorm = Math.min(1.0, gameContext.player.velocity.length() / maxRefSpeed);
+
+      visorPass.uniforms.uTime.value = now * 0.001;
+      visorPass.uniforms.uOxygen.value = THREE.MathUtils.clamp(gameContext.player.oxygen / 100.0, 0.0, 1.0);
+      visorPass.uniforms.uPanic.value = THREE.MathUtils.clamp(gameContext.player.panic, 0.0, 1.0);
+      visorPass.uniforms.uDamage.value = THREE.MathUtils.clamp(gameContext.player.damageFlash, 0.0, 1.0);
+      visorPass.uniforms.uVelocity.value = speedNorm;
+
+      composer.render(dt);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
